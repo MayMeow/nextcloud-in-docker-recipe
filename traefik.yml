@@ -1,0 +1,40 @@
+api:
+  dashboard: true
+  insecure: true
+
+log:
+  level: "DEBUG"
+
+providers:
+  docker:
+    exposedbydefault: false
+
+  file:
+    filename: "/tls_config.yml"
+    watch: true
+
+entrypoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+certificatesresolvers:
+  le:
+    acme:
+      httpchallenge:
+        entrypoint: "web"
+      emaiL: "<CHANGE_ME_TO_YOUR_EMAIL>"
+      storage: "/letsencrypt/acme.json"
+      dnschallenge:
+        provider: "cloudflare"
+
+accesslog: true
+
+serversTransport:
+  insecureSkipVerify: true

@@ -1,0 +1,98 @@
+version: "3.2"
+
+networks:
+  frontend:
+    external: true
+  nextcloud_backend:
+    internal: true
+
+services:
+
+  nextcloud-traefik:
+    image: traefik
+    container_name: nextcloud_traefik
+    command:
+      --configFile=/traefik.yml
+    restart: unless-stopped
+    networks:
+      - frontend
+      - nextcloud_backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/traefik.yml:ro
+      - ./external-services.yml:/external-services.yml:ro
+      - ./tls_config.yml:/tls-config.yml:ro
+      - ./letsencrypt:/letsencrypt
+    environment:
+      - CF_API_EMAIL=<CHANGE_ME_TO_YOUR_CLOUDFLARE_EMAIL>
+      - CF_API_KEY=<CHANGE_ME_TO_CLOUDFLARE_API_KEY>
+
+  nextcloud-postgres:
+    image: postgres:12.4
+    networks:
+      - nextcloud_backend
+    environment:
+      POSTGRES_PASSWORD: PgR00tPa$$word # Change this to your own passowrd
+    logging:
+      driver: "none"
+    restart: unless-stopped
+    volumes:
+      - ./volumes/db/:/var/lib/postgresql/data
+
+  nextcloud-app:
+    image: nextcloud
+    restart: unless-stopped
+    networks:
+      - frontend
+      - nextcloud_backend
+    depends_on:
+      - nextcloud-traefik
+      - nextcloud-postgres
+    volumes:
+      - ./volumes/app:/var/www/html
+    environment:
+      - POSTGRES_HOST=nextcloud-postgres
+      - POSTGRES_DB_FILE=/run/secrets/postgres_db
+      - POSTGRES_USER_FILE=/run/secrets/postgres_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - NEXTCLOUD_ADMIN_PASSWORD_FILE=/run/secrets/nextcloud_admin_password
+      - NEXTCLOUD_ADMIN_USER_FILE=/run/secrets/nextcloud_admin_user
+    secrets:
+      - nextcloud_admin_password
+      - nextcloud_admin_user
+      - postgres_db
+      - postgres_password
+      - postgres_user
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=frontend"
+      - "traefik.http.routers.nextcloud.entrypoints=web,websecure"
+      - "traefik.http.routers.nextcloud.rule=Host(`<CHANGE_TO_YOUR_NEXT_DOMAIN>`)"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.routers.nextcloud.tls.certresolver=le"
+      - "traefik.http.routers.nextcloud.tls.options=mytls@file"
+      - "traefik.http.routers.nextcloud.service=nextcloud"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.nextcloud.headers.customFrameOptionsValue=ALLOW-FROM https://<CHANGE_TO_YOUR_NEXT_DOMAIN>"
+      - "traefik.http.middlewares.nextcloud.headers.contentSecurityPolicy=frame-ancestors 'self' <CHANGE_TO_YOUR_NEXT_DOMAIN>"
+      - "traefik.http.middlewares.nextcloud.headers.stsSeconds=155520011"
+      - "traefik.http.middlewares.nextcloud.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.nextcloud.headers.stsPreload=true"
+      - "traefik.http.middlewares.nextcloud_redirect.redirectregex.regex=/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud_redirect.redirectregex.replacement=/remote.php/dav/"
+
+secrets:
+  nextcloud_admin_password:
+    file: ./nextcloud_admin_password.txt # put admin password to this file
+  nextcloud_admin_user:
+    file: ./nextcloud_admin_user.txt # put admin username to this file
+  postgres_db:
+    file: ./postgres_db.txt # put postgresql db name to this file
+  postgres_password:
+    file: ./postgres_password.txt # put postgresql password to this file
+  postgres_user:
+    file: ./postgres_user.txt # put postgresql username to this file
